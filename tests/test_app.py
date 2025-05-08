@@ -1,4 +1,9 @@
+from dataclasses import asdict
 from http import HTTPStatus
+
+from sqlalchemy import select
+
+from fast_zero.models import User
 
 
 def test_root_deve_retornar_ok_e_ola_mundo(client):
@@ -8,38 +13,39 @@ def test_root_deve_retornar_ok_e_ola_mundo(client):
     assert response.json() == {'message': 'Olá mundo!'}
 
 
-def test_create_user(client):
-    response = client.post(
-        '/users/',
-        json={
-            'username': 'alice',
-            'email': 'alice@example.com',
-            'password': 'secret',
-        },
-    )
-    assert response.status_code == HTTPStatus.CREATED
-    assert response.json() == {
-        'username': 'alice',
-        'email': 'alice@example.com',
+# Teste que cria um novo usuáro:
+
+
+def test_create_user(session, mock_db_time):
+    with mock_db_time(model=User) as time:
+        new_user = User(
+            username='alice', password='secret', email='teste@test'
+        )
+        session.add(new_user)
+        session.commit()
+
+    user = session.scalar(select(User).where(User.username == 'alice'))
+
+    assert asdict(user) == {
         'id': 1,
+        'username': 'alice',
+        'password': 'secret',
+        'email': 'teste@test',
+        'created_at': time,
+        'updated_at': time,
     }
+
+
+# session scalar -> SELECT * FROM USER WHERE.username = 'alice'
 
 
 def test_read_users(client):
-    response = client.get('/users/')
+    response = client.get('/users')
     assert response.status_code == HTTPStatus.OK
-    assert response.json() == {
-        'users': [
-            {
-                'username': 'alice',
-                'email': 'alice@example.com',
-                'id': 1,
-            }
-        ]
-    }
+    assert response.json() == {'users': []}
 
 
-def test_update_user(client):
+def test_update_user(client, user):
     response = client.put(
         '/users/1',
         json={
@@ -71,14 +77,14 @@ def test_update_user_not_existing(client):
     assert response.json() == {'detail': 'User not found'}
 
 
-def test_delete_user(client):
+def test_delete_user(client, user):
     response = client.delete('users/1')
 
     assert response.status_code == HTTPStatus.OK
     assert response.json() == {'message': 'User deleted'}
 
 
-def teste_delete_user_not_existing(client):
+def test_delete_user_not_existing(client):
     response = client.delete('users/555')
 
     assert response.status_code == HTTPStatus.NOT_FOUND
