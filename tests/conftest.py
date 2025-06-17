@@ -4,6 +4,9 @@ uma forma de centralizar recursos comuns de teste"""
 from contextlib import contextmanager
 from datetime import datetime
 
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
@@ -16,17 +19,21 @@ from fast_zero.models import User, table_registry
 from fast_zero.security import get_password_hash
 
 
-@pytest.fixture
-def client(session):
-    def get_session_override():
-        return session
+@pytest_asyncio.fixture 
+async def session():
+    engine = create_async_engine(
+        'sqlite+aiosqlite:///:memory:',
+        connect_args={'check_same_thread': False},
+        poolclass=StaticPool,
+    )
+    async with engine.begin() as conn: 
+        await conn.run_sync(table_registry.metadata.create_all) 
 
-    with TestClient(app) as client:
-        app.dependency_overrides[get_session] = get_session_override
-        yield client
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        yield session
 
-    app.dependency_overrides.clear()
-
+    async with engine.begin() as conn:
+        await conn.run_sync(table_registry.metadata.drop_all)
 
 # Fixture do DB:
 
@@ -84,7 +91,7 @@ def mock_db_time():
 
 
 @pytest.fixture
-def user(session):
+async def user(session):
     password = 'testtest'
     user = User(
         username='Teste',
@@ -92,8 +99,8 @@ def user(session):
         password=get_password_hash(password),
     )
     session.add(user)
-    session.commit()
-    session.refresh(user)
+    await session.commit()
+    await session.refresh(user)
 
     user.clean_password = password
 
